@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Uber Eats Overlay</string>
+    <string name="accessibility_description">This service helps populate delivery fields from the Uber Driver app.</string>
+</resources>
