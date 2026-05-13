@@ -1,0 +1,44 @@
+# IntelliJ / Android Studio
+*.iml
+*.ipr
+*.iws
+.idea/
+.gradle/
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+
+# Gradle
+build/
+**/build/
+.gradle/
+
+# Android Studio captures and native build
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local config files
+local.properties
+key.properties
+*.keystore
+*.jks
+
+# Log files
+*.log
+
+# OS generated files
+ehthumbs.db
+Icon?
+Thumbs.db
+
+# Kotlin/JetBrains
+out/
+
+# Generated files
+*.rpg
