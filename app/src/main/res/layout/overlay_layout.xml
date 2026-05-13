@@ -21,7 +21,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Overall Rate: $X.XX/hr (+/-$X.XX)"
-        android:textColor="#FFFF00" <!-- Yellow for add-on info -->
+        android:textColor="#FFFF00"
         android:textSize="14sp"
         android:fontFamily="monospace"
         android:visibility="gone" /> <!-- Initially hidden -->
