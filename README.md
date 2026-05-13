@@ -2,9 +2,11 @@
 
 This Android application serves as a real-time profitability overlay (Heads-Up Display - HUD) for Uber Eats delivery drivers. It's designed to run alongside the official Uber Driver app, providing immediate insights into the true net profit and effective hourly rate of incoming delivery offers.
 
-![Trip 1](screenshots/1.jpg)
-![Trip 2](screenshots/2.jpg)
-![Trip 3](screenshots/3.jpg)
+<p align="center">
+  <img src="screenshots/1.jpg" width="300" alt="Trip 1" />
+  <img src="screenshots/2.jpg" width="300" alt="Trip 2" />
+  <img src="screenshots/3.jpg" width="300" alt="Trip 3" />
+</p>
 
 
 ## Purpose
