@@ -79,6 +79,11 @@ class MyAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null) return
+        Log.d("UberDebug", "Event Type: ${AccessibilityEvent.eventTypeToString(event.eventType)}")
+        Log.d("UberDebug", "Event Package: ${event?.packageName}")
+        Log.d("UberDebug", "Event Source: ${event?.source}")
+        
         if (event?.packageName?.contains("ubercab.driver") == false) return
 
         // Search windows for the Uber root
@@ -97,7 +102,11 @@ class MyAccessibilityService : AccessibilityService() {
 
             val text = node.text?.toString() ?: ""
             val desc = node.contentDescription?.toString() ?: ""
-            val combined = "$text $desc"
+            val combined = "$text $desc".trim()
+
+            if (combined.lowercase().contains("accept")) {
+                Log.d("UberDebug", "Found Accept Button - Forcing Overlay check")
+            }
 
             // 1. PAYOUT: Look for the large dollar amount.
             if (combined.contains("$")) {

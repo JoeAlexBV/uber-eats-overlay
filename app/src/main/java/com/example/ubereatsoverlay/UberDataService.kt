@@ -12,6 +12,12 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.util.Log
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import java.util.Locale
 
 class UberDataService : AccessibilityService() {
 
@@ -39,11 +45,56 @@ class UberDataService : AccessibilityService() {
     )
 
     // Regex for extracting numbers
-    private val numberRegex = Regex("\\d+\\.\\d+|\\d+")
+    private val payRegex = Regex("\\$\\s*(\\d+\\.?\\d*)")
+    private val distanceRegex = Regex("(\\d+\\.?\\d*)\\s*mi")
+    private val timeRegex = Regex("(\\d+)\\s*min")
+
+    private var lastNotifiedPay = 0.0
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        createNotificationChannel()
+    }
+
+    private val CHANNEL_ID = "UberProfitChannel"
+
+    private fun createNotificationChannel() {
+        // Fixed: Build check and NotificationManager references
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "Trip Profitability"
+            val descriptionText = "Shows Net and Rate for Uber offers"
+            val importance = NotificationManager.IMPORTANCE_HIGH
+            val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
+                description = descriptionText
+            }
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+
+    private fun sendProfitNotification(net: Double, rate: Double) {
+        val title = "New Offer Found"
+        // Fixed: Locale reference
+        val content = String.format(Locale.US, "Net: $%.2f | Rate: $%.2f/hr", net, rate)
+
+        // Fixed: NotificationCompat and NotificationManagerCompat references
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher) 
+            .setContentTitle(title)
+            .setContentText(content)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVibrate(longArrayOf(1000, 1000))
+            .setAutoCancel(true)
+
+        try {
+            if (Math.abs(net - lastNotifiedPay) > 0.01) { // Only notify if value changed
+                NotificationManagerCompat.from(this).notify(1, builder.build())
+                lastNotifiedPay = net
+            }
+        } catch (e: SecurityException) {
+            // Log if POST_NOTIFICATIONS permission is missing
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
@@ -76,27 +127,29 @@ class UberDataService : AccessibilityService() {
         if (node == null) return
         val text = node.text?.toString() ?: ""
         val desc = node.contentDescription?.toString() ?: ""
-        val combined = "$text $desc"
+        val combined = "$text $desc".trim()
 
         // 1. Extract Pay (e.g., "$5.02")
         if (combined.contains("$") &&
             !combined.lowercase().contains("expect") && // Avoid "expected earnings"
             !combined.lowercase().contains("include")) { // Avoid "includes tips"
-            val match = Regex("\\$\\d+\\.\\d+").find(combined)
-            match?.value?.replace("$", "")?.toDoubleOrNull()?.let {
+            payRegex.find(combined)?.groupValues?.get(1)?.toDoubleOrNull()?.let {
                 currentOffer.pay = it
+                Log.d("UberDebug", "Scraped Pay: $it")
             }
         }
         // 2. Extract Distance (e.g., "9.1 mi")
         if (combined.contains("mi")) {
-            numberRegex.find(combined)?.value?.toDoubleOrNull()?.let {
+            distanceRegex.find(combined)?.groupValues?.get(1)?.toDoubleOrNull()?.let {
                 currentOffer.distance = it
+                Log.d("UberDebug", "Scraped Distance: $it")
             }
         }
         // 3. Extract Time (e.g., "25 min")
         if (combined.contains("min")) {
-            numberRegex.find(combined)?.value?.toDoubleOrNull()?.let {
+            timeRegex.find(combined)?.groupValues?.get(1)?.toDoubleOrNull()?.let {
                 currentOffer.time = it
+                Log.d("UberDebug", "Scraped Time: $it")
             }
         }
 
@@ -106,12 +159,9 @@ class UberDataService : AccessibilityService() {
     }
 
     private fun updateUI(offer: TripOffer) {
-        // Calculate your actual take-home profit
         val netPay = offer.pay - (offer.distance * COST_PER_MILE)
-        
-        // Calculate the hourly rate based on your net profit
-        // Convert minutes to hours for hourly rate calculation
-        val hourlyRate = if (offer.time > 0) (netPay / offer.time) * 60 else 0.0
+        val totalHours = offer.time / 60.0
+        val hourlyRate = if (totalHours > 0) netPay / totalHours else 0.0
 
         val displayStr = StringBuilder()
             .append(String.format(java.util.Locale.US, "Pay: $%.2f\n", offer.pay))
@@ -122,6 +172,9 @@ class UberDataService : AccessibilityService() {
         infoTextView?.post { // Ensure UI updates happen on the main thread
             infoTextView?.text = displayStr
         }
+
+        // Send to Android Auto / Phone Notification
+        sendProfitNotification(netPay, hourlyRate)
     }
 
     private fun showOverlay() {
