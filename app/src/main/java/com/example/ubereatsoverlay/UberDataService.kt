@@ -11,6 +11,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.util.Log
 
 class UberDataService : AccessibilityService() {
 
@@ -46,7 +47,8 @@ class UberDataService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        if (event.packageName?.toString() == "com.ubercab.driver") {
+        Log.d("UberDebug", "Event received from: ${event.packageName}")
+        if (event.packageName?.toString()?.contains("ubercab") == true) {
             val rootNode = rootInActiveWindow
             rootNode?.let {
                 val currentOffer = TripOffer()
