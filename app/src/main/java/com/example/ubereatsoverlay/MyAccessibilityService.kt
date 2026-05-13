@@ -90,21 +90,26 @@ class MyAccessibilityService : AccessibilityService() {
         var bestDistance = ""
         var bestTime = ""
 
+        var highestPay = 0.0
+
         fun scan(node: AccessibilityNodeInfo?) {
             if (node == null) return
 
-            // Compose often puts text in contentDescription OR text fields
             val text = node.text?.toString() ?: ""
             val desc = node.contentDescription?.toString() ?: ""
             val combined = "$text $desc"
 
             // 1. PAYOUT: Look for the large dollar amount.
-            // We ignore strings containing "expected" or "includes" to avoid the fine print.
-            if (combined.contains("$") &&
-                    !combined.lowercase().contains("expect") &&
-                    !combined.lowercase().contains("include")) {
-                val match = Regex("\\$\\d+\\.\\d+").find(combined)
-                if (match != null) bestPayout = match.value
+            if (combined.contains("$")) {
+                // Regex to find any price pattern like $12.34
+                val match = Regex("\\d+\\.\\d+").find(combined)
+                match?.value?.toDoubleOrNull()?.let { foundPrice ->
+                    // ONLY keep the number if it's the largest one we've seen so far
+                    if (foundPrice > highestPay) {
+                        highestPay = foundPrice
+                        bestPayout = "$$foundPrice" 
+                    }
+                }
             }
 
             // 2. DISTANCE: Look for (X.X mi)

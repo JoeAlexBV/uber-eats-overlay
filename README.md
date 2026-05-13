@@ -2,6 +2,12 @@
 
 This Android application serves as a real-time profitability overlay (Heads-Up Display - HUD) for Uber Eats delivery drivers. It's designed to run alongside the official Uber Driver app, providing immediate insights into the true net profit and effective hourly rate of incoming delivery offers.
 
+![Trip 1](screenshots/1.png)
+![Trip 2](screenshots/2.png)
+![Trip 3](screenshots/3.png)
+![Trip 4](screenshots/4.png)
+
+
 ## Purpose
 
 As an Uber Eats driver, I wanted a quick and accurate way to assess the profitability of each delivery offer. The standard Uber app provides a payout, but it doesn't factor in the specific operating costs of my vehicle. This app addresses that by calculating the true net profit and an estimated hourly rate *before* accepting an order.
