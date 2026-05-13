@@ -18,6 +18,9 @@ class UberDataService : AccessibilityService() {
     private var overlayView: View? = null
     private var infoTextView: TextView? = null
     private var overlayVisible: Boolean = false
+    
+    // Move params to a class property so the listener can modify it
+    private lateinit var params: WindowManager.LayoutParams
 
     // --- YOUR 2023 FORD RANGER COSTS ---
     private val GAS_PRICE_PER_GALLON = 4.10
@@ -121,10 +124,9 @@ class UberDataService : AccessibilityService() {
 
     private fun showOverlay() {
         if (!overlayVisible) {
-            val params = WindowManager.LayoutParams(
+            params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
-                // Use TYPE_ACCESSIBILITY_OVERLAY for accessibility services
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT
@@ -132,16 +134,48 @@ class UberDataService : AccessibilityService() {
                 gravity = Gravity.TOP or Gravity.START
                 x = 100
                 y = 200
-                // Optional: Add a touch listener for dragging the overlay
-                // This would require more setup, similar to MyAccessibilityService.kt
             }
 
             val inflater = getSystemService(LAYOUT_INFLATER_SERVICE) as LayoutInflater
             overlayView = inflater.inflate(R.layout.overlay_layout, null)
             infoTextView = overlayView?.findViewById(R.id.overlay_text)
+
+            // ADD THE DRAG LOGIC HERE
+            setupDragListener()
+
             windowManager?.addView(overlayView, params)
             overlayVisible = true
         }
+    }
+
+    private fun setupDragListener() {
+        overlayView?.setOnTouchListener(object : View.OnTouchListener {
+            private var initialX: Int = 0
+            private var initialY: Int = 0
+            private var initialTouchX: Float = 0.0f
+            private var initialTouchY: Float = 0.0f
+
+            override fun onTouch(v: View, event: android.view.MotionEvent): Boolean {
+                when (event.action) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        initialX = params.x
+                        initialY = params.y
+                        initialTouchX = event.rawX
+                        initialTouchY = event.rawY
+                        return true
+                    }
+                    android.view.MotionEvent.ACTION_MOVE -> {
+                        params.x = initialX + (event.rawX - initialTouchX).toInt()
+                        params.y = initialY + (event.rawY - initialTouchY).toInt()
+                        
+                        // Update the window position in real-time
+                        windowManager?.updateViewLayout(overlayView, params)
+                        return true
+                    }
+                }
+                return false
+            }
+        })
     }
 
     private fun removeOverlay() {

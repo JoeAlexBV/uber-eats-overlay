@@ -25,11 +25,14 @@ class MyAccessibilityService : AccessibilityService() {
         overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_layout, null)
 
         params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                PixelFormat.TRANSLUCENT
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            // Change to TYPE_APPLICATION_OVERLAY for better touch priority on modern Android
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, 
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+            WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
         )
 
         params.gravity = Gravity.TOP or Gravity.START
@@ -57,13 +60,20 @@ class MyAccessibilityService : AccessibilityService() {
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        params.x = initialX + (event.rawX - initialTouchX).toInt()
-                        params.y = initialY + (event.rawY - initialTouchY).toInt()
+                        // Calculate how much the finger has moved since ACTION_DOWN
+                        val deltaX = (event.rawX - initialTouchX).toInt()
+                        val deltaY = (event.rawY - initialTouchY).toInt()
+
+                        // Update params based on that movement
+                        params.x = initialX + deltaX
+                        params.y = initialY + deltaY
+
+                        // Apply the new position to the window
                         windowManager.updateViewLayout(overlayView, params)
                         return true
                     }
                 }
-                return false
+                return false // Allow other events to pass if not Down or Move
             }
         })
     }
