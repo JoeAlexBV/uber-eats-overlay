@@ -18,6 +18,7 @@ import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import java.io.File
+import androidx.core.app.Person
 import java.io.IOException
 import java.util.Locale
 
@@ -33,6 +34,8 @@ class UberDataService : AccessibilityService() {
     companion object {
         // Shared variable so the CarAppService can read the latest stats
         var latestStats: String = "Waiting for offer..."
+        var currentNet: Double = 0.0
+        var currentRate: Double = 0.0
     }
 
     // --- 2023 FORD RANGER COSTS ---
@@ -154,6 +157,9 @@ class UberDataService : AccessibilityService() {
         val netPay = offer.pay - (offer.distance * TOTAL_COST_PER_MILE)
         val hourlyRate = if (offer.time > 0) netPay / (offer.time / 60.0) else 0.0
 
+        currentNet = netPay
+        currentRate = hourlyRate
+
         val displayStr = String.format(Locale.US, "Pay: $%.2f\nNet: $%.2f\nRate: $%.2f/hr", 
             offer.pay, netPay, hourlyRate)
         
@@ -245,12 +251,16 @@ class UberDataService : AccessibilityService() {
     }
 
     private fun sendProfitNotification(net: Double, rate: Double, isAddOn: Boolean) {
+        val user = Person.Builder().setName("Uber Data").build()
         val content = String.format(Locale.US, "Net: $%.2f | Rate: $%.2f/hr", net, rate)
+
         val builder = NotificationCompat.Builder(this, "UberProfitChannel")
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(if (isAddOn) "Add-on Profit" else "Trip Profit")
-            .setContentText(content)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            // This Style is the "key" to the 1/4 dashboard tile
+            .setStyle(NotificationCompat.MessagingStyle(user)
+                .addMessage(content, System.currentTimeMillis(), user)
+            )
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setAutoCancel(true)
 

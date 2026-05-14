@@ -2,6 +2,8 @@ package com.example.ubereatsoverlay
 
 import android.content.Intent
 import androidx.car.app.CarAppService
+import androidx.car.app.model.*
+import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.Session
 import androidx.car.app.model.Action
@@ -25,22 +27,23 @@ class UberCarAppService : CarAppService() {
 
 class UberCarScreen(carContext: androidx.car.app.CarContext) : Screen(carContext) {
     override fun onGetTemplate(): Template {
-        // Create a "Message" containing your Uber data
-        val message = Message.Builder("Net: $${currentNet} | Rate: $${currentRate}/hr")
-            .setSender(Person.Builder().setName("Uber Offer").build())
+        val row = Row.Builder()
+            .setTitle("Uber Profit Tracker")
+            .addText(
+                String.format(
+                    "Net: $%.2f | Rate: $%.2f/hr",
+                    UberDataService.currentNet,
+                    UberDataService.currentRate
+                )
+            )
             .build()
 
-        // Use a ListTemplate with the Messaging category to fit the small tile
-        return ListTemplate.Builder()
-            .setSingleList(
-                ItemList.Builder()
-                    .addItem(
-                        Row.Builder()
-                            .setTitle("New Uber Offer")
-                            .addText("Net Profit: $${currentNet}")
-                            .build()
-                    ).build()
-            )
+        val pane = Pane.Builder()
+            .addRow(row)
+            .build()
+
+        // PaneTemplate is resizable and fits better in dashboard tiles
+        return PaneTemplate.Builder(pane)
             .setHeaderAction(Action.APP_ICON)
             .build()
     }
