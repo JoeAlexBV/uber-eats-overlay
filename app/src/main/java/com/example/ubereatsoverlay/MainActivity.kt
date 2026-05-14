@@ -34,7 +34,6 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Initialize your views (Make sure IDs match your XML)
         payoutTextView = findViewById(R.id.payoutText)
         distanceTextView = findViewById(R.id.distanceText)
         storeTextView = findViewById(R.id.storeText)
