@@ -6,6 +6,7 @@ import androidx.car.app.model.*
 import androidx.car.app.Session
 import androidx.car.app.Screen
 import androidx.car.app.validation.HostValidator
+import java.util.Locale
 
 class UberCarAppService : CarAppService() {
     override fun createHostValidator(): HostValidator = HostValidator.ALLOW_ALL_HOSTS_VALIDATOR
