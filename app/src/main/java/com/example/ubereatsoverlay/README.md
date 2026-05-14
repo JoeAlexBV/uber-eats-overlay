@@ -22,7 +22,7 @@ The app scrapes the raw pay, distance, and estimated time from the Uber Driver a
 -   **Pay:** The raw payout from Uber.
 -   **Net:** The estimated net profit after deducting vehicle operating costs.
 -   **Rate:** The estimated hourly rate based on the net profit and estimated delivery time.
--   **Add-on Specifics:** For add-on offers, it will also display the individual add-on's net/rate, and crucially, how accepting the add-on would change your *overall* hourly rate for the combined trip.
+-   **Add-on Specifics:** For add-on offers, it will also display the individual add-on's net/rate, and crucially, how accepting the add-on would change the *overall* hourly rate for the combined trip.
 
 
 

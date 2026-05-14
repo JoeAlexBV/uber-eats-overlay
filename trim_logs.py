@@ -1,6 +1,5 @@
 import os
 
-# Path to your log file
 log_path = r"C:\Users\sixpi\AndroidStudioProjects\UberEatsOverlay\uber_debug_logs.txt"
 
 if os.path.exists(log_path):
