@@ -40,5 +40,30 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- Android Auto Service for Ford SYNC -->
+        <service
+            android:name=".UberCarAppService"
+            android:exported="true"
+            android:label="Ranger Profit HUD"
+            android:icon="@mipmap/ic_launcher">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <category android:name="androidx.car.app.category.MESSAGING"/>
+            </intent-filter>
+        </service>
+
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="1" />
+
+        <!-- This is to enable split screen support-->
+        <meta-data
+            android:name="com.google.android.car.MENU_RESTRICTION"
+            android:value="none" />
+
     </application>
 </manifest>

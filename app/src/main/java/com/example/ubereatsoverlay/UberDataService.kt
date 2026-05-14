@@ -30,87 +30,58 @@ class UberDataService : AccessibilityService() {
     private var overlayVisible: Boolean = false
     private lateinit var params: WindowManager.LayoutParams
 
+    companion object {
+        // Shared variable so the CarAppService can read the latest stats
+        var latestStats: String = "Waiting for offer..."
+    }
+
     // --- 2023 FORD RANGER COSTS ---
-    private val COST_PER_MILE = (4.10 / 22.0) + 0.25 
+    private val GAS_PRICE = 4.10
+    private val MPG = 22.0
+    private val MAINTENANCE = 0.25
+    private val TOTAL_COST_PER_MILE = (GAS_PRICE / MPG) + MAINTENANCE 
     
     private data class TripOffer(
         var pay: Double = 0.0,
         var distance: Double = 0.0,
         var time: Double = 0.0,
         var isAddOn: Boolean = false,
-        var isRealOffer: Boolean = false // New flag to trigger only on offers
+        var isRealOffer: Boolean = false 
     )
 
-    // Require the $ sign to avoid grabbing random numbers from URLs or dates
+    // Regex for specific formats seen in image_1dadfd.jpg
     private val payRegex = Regex("\\\$\\s*(\\d+\\.?\\d*)")
-    // Use \b (word boundary) to ensure "mi" doesn't match the start of "min"
-    private val distanceRegex = Regex("(\\d+\\.?\\d*)\\s*mi\\b")
-    private val timeRegex = Regex("(\\d+)\\s*min\\b")
+    private val distanceRegex = Regex("(\\d+\\.?\\d*)\\s*mi")
+    private val timeRegex = Regex("(\\d+)\\s*min")
     
-    private var lastNotifiedPay = 0.0
-    private var currentActiveTrip: TripOffer? = null 
     private var lastProcessedOfferHash: Int = 0 
-
-    // Calculations for the 2023 Ford Ranger
-    private val GAS_PRICE = 4.10
-    private val MPG = 22.0
-    private val MAINTENANCE = 0.25
-    private val TOTAL_COST_PER_MILE = (GAS_PRICE / MPG) + MAINTENANCE
-
-    override fun onCreate() {
-        super.onCreate()
-        Log.d("UberDebug", "UberDataService onCreate called.")
-    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         createNotificationChannel()
         startLoggingToFile()
-        Log.d("UberDebug", "UberDataService connected.")
+        showOverlay() // Show immediately on start
+        updateOverlayText("Ready for orders...")
+        Log.d("UberDebug", "Service Connected. Cost/Mile: $TOTAL_COST_PER_MILE")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val pkgName = event.packageName?.toString() ?: ""
-        Log.d("UberDebug", "Event: ${AccessibilityEvent.eventTypeToString(event.eventType)}, Package: $pkgName")
-        
-        // Only process events from the Uber Driver app
-        if (!pkgName.contains("ubercab.driver")) {
-            // If we're no longer in the Uber app, remove the overlay
-            if (overlayVisible) {
-                Log.d("UberDebug", "Uber app not in foreground ($pkgName), removing overlay.")
-                removeOverlay()
-                currentActiveTrip = null // Clear active trip if we leave Uber
-                currentActiveTrip = null
-            }
-            return
-        }
 
-        // Fallback: Search all windows if rootInActiveWindow is null or incorrect
-        val rootNode = rootInActiveWindow ?: windows.find { 
-        // Prioritize event.source for immediate pop-up data, fallback to window root
+        // Prioritize event.source for immediate pop-ups
         val rootNode = event.source ?: rootInActiveWindow ?: windows.find { 
             it.root?.packageName?.contains("ubercab.driver") == true
         }?.root
 
-        if (rootNode == null) {
-            Log.w("UberDebug", "No root node found for Uber app in event: ${AccessibilityEvent.eventTypeToString(event.eventType)}")
-            return // Cannot proceed without a root node
-        }
-        Log.d("UberDebug", "Root node found for Uber app. Class: ${rootNode.className}")
+        if (rootNode == null) return
 
         val currentOffer = TripOffer()
-        
         collectTripData(rootNode, currentOffer)
         
-        // ONLY SHOW if we see an "Accept", "Match", or "Exclusive" button.
-        // This prevents the overlay from showing on the Earnings or Trip Details screens.
-        // Note: Check your logs to see if 'isRealOffer' is ever true. 
-        // If not, Uber might be using an image or a different word for the button.
-        if ((currentOffer.isRealOffer || currentOffer.pay > 0.0) && currentOffer.distance > 0.0) { 
-        // logic: Show if it looks like an offer, HIDE if it looks like history or an active trip
-        val isLikelyOffer = (currentOffer.isRealOffer || currentOffer.pay > 0.1) && currentOffer.distance > 0.1
-        val isHistoryOrActive = combinedCheck(rootNode, listOf("history", "earnings", "details", "navigate", "way to"))
+        // Safety logic: Only show if it's an offer, not an earnings summary
+        val isLikelyOffer = currentOffer.isRealOffer && currentOffer.pay > 1.0 && currentOffer.distance > 0.0
+        val isHistoryOrActive = combinedCheck(rootNode, listOf("history", "earnings", "details", "navigate"))
 
         if (isLikelyOffer && !isHistoryOrActive) {
             val currentOfferHash = (currentOffer.pay * 100).toInt() + (currentOffer.distance * 10).toInt()
@@ -118,24 +89,10 @@ class UberDataService : AccessibilityService() {
             if (currentOfferHash != lastProcessedOfferHash) {
                 lastProcessedOfferHash = currentOfferHash
                 showOverlay()
-                // Ensure overlayView is not null before trying to update UI
-                if (overlayView != null) {
-                    updateUI(currentOffer)
-                } else {
-                    Log.e("UberDebug", "Overlay view is null after showOverlay(), cannot update UI.")
-                }
+                updateUI(currentOffer)
             }
-        } else {
-            // Hide overlay if we aren't looking at an active offer
-            if (overlayVisible) { // Only remove if it's actually visible
-                Log.d("UberDebug", "Not a real offer or data incomplete, hiding overlay.")
-                removeOverlay()
-            }
-        } else if (isHistoryOrActive) {
-            removeOverlay()
         }
 
-        // Only recycle if it's not the event.source, as event.source is recycled by the system
         if (rootNode != event.source) {
             rootNode.recycle()
         }
@@ -156,51 +113,36 @@ class UberDataService : AccessibilityService() {
         val text = node.text?.toString() ?: ""
         val desc = node.contentDescription?.toString() ?: ""
         val combined = "$text $desc".lowercase()
-        
-        // --- VERBOSE LOGGING: THIS IS CRUCIAL FOR DEBUGGING ---
-        // Uncomment the line below to see every piece of text the service encounters.
-        // This will be very chatty, but invaluable for identifying what Uber's UI looks like.
-        // Log.d("UberDebug_Verbose", "Node Text: '$text', Desc: '$desc', Combined: '$combined'")
 
-        // TRIGGER CHECK: Is this an actual offer?
-        if (combined.contains("accept") || 
-            combined.contains("match") || 
-            combined.contains("exclusive") ||
-            combined.contains("opportunity")) { // Added opportunity as a common keyword
-            combined.contains("opportunity") ||
-            combined.contains("delivery")) { 
+        // 1. TRIGGER CHECK: Detect actual offer screen
+        if (combined.contains("accept") || combined.contains("match") || 
+            combined.contains("exclusive") || combined.contains("delivery")) { 
             currentOffer.isRealOffer = true
-            Log.d("UberDebug", "Found 'Accept/Match/Exclusive' keyword, setting isRealOffer = true.")
         }
 
         if (combined.contains("add to trip") || combined.contains("next trip")) {
             currentOffer.isAddOn = true
-            Log.d("UberDebug", "Found 'add to trip/next trip' keyword, setting isAddOn = true.")
         }
 
-        // SCRAPE PAY: Use combined (text + desc) as some amounts are in labels
-        payRegex.find(combined)?.let {
-            val value = it.groupValues[1].toDoubleOrNull() ?: 0.0
-            // Only update if the found value is greater than current (to get the main offer pay)
-            // and is a reasonable pay amount (e.g., not a tiny tip or a huge daily total)
-            if (value > currentOffer.pay && value < 500.0) { // Adjusted max pay for more flexibility
-                currentOffer.pay = value
-                Log.d("UberDebug", "Scraped Pay: $value from '$combined'")
+        // 2. SCRAPE PAY with "Quest Filter"
+        // If the text contains Quest keywords like "extra for" or "trips", ignore it
+        if (combined.contains("$") && !combined.contains("extra for") && !combined.contains("trips")) {
+            payRegex.find(combined)?.let {
+                Log.d("UberDebug", "Potential Pay Found: ${it.value} in text: [$combined]")
+                val value = it.groupValues[1].toDoubleOrNull() ?: 0.0
+                // Keep the largest dollar amount found on screen (the fare)
+                if (value > currentOffer.pay) currentOffer.pay = value
             }
         }
 
-        // SCRAPE DISTANCE: Distance is almost always in Content Description
+        // 3. SCRAPE DISTANCE (e.g., "3.0 mi")
         distanceRegex.find(combined)?.let {
-            val dist = it.groupValues[1].toDoubleOrNull() ?: 0.0
-            currentOffer.distance = dist
-            Log.d("UberDebug", "Scraped Distance: $dist from '$combined'")
+            currentOffer.distance = it.groupValues[1].toDoubleOrNull() ?: 0.0
         }
 
-        // SCRAPE TIME: Time is also often in Content Description
+        // 4. SCRAPE TIME (e.g., "22 min")
         timeRegex.find(combined)?.let {
-            val t = it.groupValues[1].toDoubleOrNull() ?: 0.0
-            currentOffer.time = t
-            Log.d("UberDebug", "Scraped Time: $t from '$combined'")
+            currentOffer.time = it.groupValues[1].toDoubleOrNull() ?: 0.0
         }
 
         for (i in 0 until node.childCount) {
@@ -209,16 +151,19 @@ class UberDataService : AccessibilityService() {
     }
 
     private fun updateUI(offer: TripOffer) {
-        val netPay = offer.pay - (offer.distance * COST_PER_MILE)
+        val netPay = offer.pay - (offer.distance * TOTAL_COST_PER_MILE)
         val hourlyRate = if (offer.time > 0) netPay / (offer.time / 60.0) else 0.0
 
         val displayStr = String.format(Locale.US, "Pay: $%.2f\nNet: $%.2f\nRate: $%.2f/hr", 
             offer.pay, netPay, hourlyRate)
-
-        infoTextView?.post { infoTextView?.text = displayStr }
         
-        // Android Auto Notification
+        latestStats = displayStr
+        updateOverlayText(displayStr)
         sendProfitNotification(netPay, hourlyRate, offer.isAddOn)
+    }
+
+    private fun updateOverlayText(text: String) {
+        infoTextView?.post { infoTextView?.text = text }
     }
 
     private fun showOverlay() {
@@ -228,42 +173,31 @@ class UberDataService : AccessibilityService() {
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or // Crucial for drag
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                y = 100 
+                y = 150 
             }
 
             val inflater = getSystemService(LAYOUT_INFLATER_SERVICE) as LayoutInflater
             overlayView = inflater.inflate(R.layout.overlay_layout, null)
             infoTextView = overlayView?.findViewById(R.id.overlay_text)
-            addOnInfoTextView = overlayView?.findViewById(R.id.overlay_addon_text) // Ensure this is initialized
-
+            
+            setupDragListener()
+            if (overlayView?.parent != null) windowManager?.removeView(overlayView)
             windowManager?.addView(overlayView, params)
-            Log.d("UberDebug", "Overlay added to WindowManager.")
             overlayVisible = true
-            setupDragListener() // Call the drag listener setup here
-        }
-    }
-
-    private fun removeOverlay() {
-        if (overlayVisible && overlayView != null) {
-            windowManager?.removeView(overlayView)
-            overlayView = null
-            overlayVisible = false
-            Log.d("UberDebug", "Overlay removed from WindowManager.")
-            lastProcessedOfferHash = 0
         }
     }
 
     private fun setupDragListener() {
         overlayView?.setOnTouchListener(object : View.OnTouchListener {
-            private var initialX: Int = 0
-            private var initialY: Int = 0
-            private var initialTouchX: Float = 0.0f
-            private var initialTouchY: Float = 0.0f
+            private var initialX = 0
+            private var initialY = 0
+            private var initialTouchX = 0f
+            private var initialTouchY = 0f
 
             override fun onTouch(v: View, event: MotionEvent): Boolean {
                 when (event.action) {
@@ -275,25 +209,26 @@ class UberDataService : AccessibilityService() {
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        // Calculate how much the finger has moved since ACTION_DOWN
-                        val deltaX = (event.rawX - initialTouchX).toInt()
-                        val deltaY = (event.rawY - initialTouchY).toInt()
-
-                        // Update params based on that movement
-                        params.x = initialX + deltaX
-                        params.y = initialY + deltaY
-
-                        // Apply the new position to the window
+                        params.x = initialX + (event.rawX - initialTouchX).toInt()
+                        params.y = initialY + (event.rawY - initialTouchY).toInt()
                         windowManager?.updateViewLayout(overlayView, params)
                         return true
                     }
                 }
-                return false // Allow other events to pass if not Down or Move
+                return false
             }
         })
     }
 
-    // --- LOGGING & NOTIFICATIONS ---
+    private fun removeOverlay() {
+        if (overlayVisible && overlayView != null) {
+            windowManager?.removeView(overlayView)
+            overlayView = null
+            overlayVisible = false
+            lastProcessedOfferHash = 0
+        }
+    }
+
     private fun startLoggingToFile() {
         val logFile = File(getExternalFilesDir(null), "uber_debug_logs.txt")
         try {
@@ -316,6 +251,7 @@ class UberDataService : AccessibilityService() {
             .setContentTitle(if (isAddOn) "Add-on Profit" else "Trip Profit")
             .setContentText(content)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setAutoCancel(true)
 
         try {
@@ -327,6 +263,5 @@ class UberDataService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         removeOverlay()
-        Log.d("UberDebug", "UberDataService onDestroy called.")
     }
 }

@@ -40,7 +40,7 @@ dependencies {
     implementation(libs.constraintlayout)
     // Locked to a stable version to prevent compatibility crashes
     implementation("androidx.core:core-ktx:1.12.0")
-
+    implementation("androidx.car.app:app:1.4.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
