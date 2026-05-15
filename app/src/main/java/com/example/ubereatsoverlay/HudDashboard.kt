@@ -1,6 +1,5 @@
 package com.example.ubereatsoverlay
 
-import androidx.car.app.annotations.ExperimentalCarApi
 import androidx.car.app.messaging.model.CarMessage
 import androidx.car.app.messaging.model.ConversationCallback
 import androidx.car.app.messaging.model.ConversationItem
@@ -12,7 +11,6 @@ import androidx.car.app.model.ListTemplate
 import androidx.car.app.model.Template
 import androidx.core.app.Person
 
-@OptIn(ExperimentalCarApi::class)
 object HudDashboard {
 
     const val ACTION_UPDATE = "com.example.ubereatsoverlay.HUD_DASHBOARD_UPDATE"
@@ -31,13 +29,13 @@ object HudDashboard {
     fun buildTemplate(onRefresh: () -> Unit): Template {
         val conversation = ConversationItem.Builder()
             .setId("ranger_profit_hud")
-            .setTitle(CarText.create(HudState.tileTitle()))
+            .setTitle(CarText.create(HudState.carNotificationTitle()))
             .setSelf(driver)
             .setMessages(
                 listOf(
                     CarMessage.Builder()
                         .setSender(hud)
-                        .setBody(CarText.create(HudState.tileText()))
+                        .setBody(CarText.create(HudState.carNotificationText()))
                         .setReceivedTimeEpochMillis(System.currentTimeMillis())
                         .setRead(false)
                         .build()
@@ -57,9 +55,9 @@ object HudDashboard {
             .build()
 
         return ListTemplate.Builder()
-            .setTitle("Ranger Profit HUD")
-            .setSingleList(list)
+            .setTitle("Ranger HUD")
             .setHeaderAction(Action.APP_ICON)
+            .setSingleList(list)
             .setActionStrip(refreshActionStrip(onRefresh))
             .build()
     }

@@ -12,4 +12,7 @@
     <string name="btn_test_offer_14">Test: $14.06 offer (5.1 mi)</string>
     <string name="toast_test_sent_dashboard">Test stats sent - open Ranger Profit HUD on DHU.</string>
     <string name="hud_preview_net">Net $%.2f - $%.2f/hr</string>
+    <string name="stacked_order_alert">STACKED ORDER</string>
+    <string name="notification_channel_name">Ranger HUD Alerts</string>
+    <string name="new_offer_title">New Uber Offer</string>
 </resources>

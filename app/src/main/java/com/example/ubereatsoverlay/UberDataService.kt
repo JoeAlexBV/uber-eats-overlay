@@ -226,6 +226,13 @@ class UberDataService : AccessibilityService() {
         val offer = RangerEconomics.Offer(trip.pay, trip.distance, trip.time)
         apply(offer)
         publish()
+
+        // High-priority alert to trigger Android Auto Heads-Up display
+        HudForeground.sendAlert(
+            this,
+            getString(R.string.new_offer_title),
+            HudState.formatPhoneOverlay()
+        )
     }
 
     private fun commitDashboard(apply: () -> Unit) {

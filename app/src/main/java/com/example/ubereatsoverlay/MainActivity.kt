@@ -85,6 +85,11 @@ class MainActivity : AppCompatActivity() {
         }
         apply()
         HudState.publishUpdate(this)
+        HudForeground.sendAlert(
+            this,
+            HudState.carNotificationTitle(),
+            HudState.carNotificationText()
+        )
         refreshHudPreview()
         Toast.makeText(this, R.string.toast_test_sent_dashboard, Toast.LENGTH_LONG).show()
     }

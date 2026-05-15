@@ -40,7 +40,8 @@ dependencies {
     implementation(libs.constraintlayout)
     // Locked to a stable version to prevent compatibility crashes
     implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.car.app:app:1.4.0")
+    implementation("androidx.car.app:app:1.7.0")
+    implementation("androidx.car.app:app-projected:1.7.0")
     implementation("androidx.media:media:1.6.0")
 
     testImplementation(libs.junit)

@@ -14,35 +14,36 @@ import androidx.core.app.RemoteInput
 object HudForeground {
 
     const val NOTIFICATION_ID = 1337
-    private const val CAR_TILE_NOTIFICATION_ID = 1338
-    private const val SERVICE_CHANNEL_ID = "ranger_hud_service"
-    private const val CAR_TILE_CHANNEL_ID = "ranger_hud_car_tile"
+    const val ALERT_ID = 1338
+    private const val CHANNEL_ID = "ranger_hud_service"
+    private const val ALERT_CHANNEL_ID = "ranger_hud_alerts"
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java)
-        if (manager.getNotificationChannel(SERVICE_CHANNEL_ID) == null) {
-            val serviceChannel = NotificationChannel(
-                SERVICE_CHANNEL_ID,
+
+        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
                 "Ranger HUD service",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Keeps profit scraping active while driving"
                 setShowBadge(false)
             }
-            manager.createNotificationChannel(serviceChannel)
+            manager.createNotificationChannel(channel)
         }
-        if (manager.getNotificationChannel(CAR_TILE_CHANNEL_ID) == null) {
-            val tileChannel = NotificationChannel(
-                CAR_TILE_CHANNEL_ID,
-                "Ranger HUD car tile",
-                NotificationManager.IMPORTANCE_DEFAULT
+
+        if (manager.getNotificationChannel(ALERT_CHANNEL_ID) == null) {
+            val alertChannel = NotificationChannel(
+                ALERT_CHANNEL_ID,
+                context.getString(R.string.notification_channel_name),
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Shows the current delivery HUD in Android Auto"
-                setSound(null, null)
-                enableVibration(false)
+                description = "Urgent alerts for new delivery offers"
+                setShowBadge(true)
             }
-            manager.createNotificationChannel(tileChannel)
+            manager.createNotificationChannel(alertChannel)
         }
     }
 
@@ -66,13 +67,18 @@ object HudForeground {
         val nm = service.getSystemService(NotificationManager::class.java)
         nm.notify(NOTIFICATION_ID, buildServiceNotification(service, HudState.formatPhoneOverlay()))
         postCarTile(service)
-        RangerHudMediaService.refresh()
     }
 
     fun postCarTile(context: Context) {
         ensureChannel(context)
         val nm = context.getSystemService(NotificationManager::class.java)
-        nm.notify(CAR_TILE_NOTIFICATION_ID, buildCarTileNotification(context))
+        nm.notify(ALERT_ID, buildCarMessageNotification(context, alerting = false))
+    }
+
+    fun sendAlert(context: Context, title: String, message: String) {
+        ensureChannel(context)
+        val nm = context.getSystemService(NotificationManager::class.java)
+        nm.notify(ALERT_ID, buildCarMessageNotification(context, title, message, alerting = true))
     }
 
     private fun buildServiceNotification(
@@ -85,7 +91,7 @@ object HudForeground {
             Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE
         )
-        return NotificationCompat.Builder(context, SERVICE_CHANNEL_ID)
+        return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_ranger)
             .setContentTitle("Ranger Profit HUD")
             .setContentText(summary)
@@ -99,7 +105,14 @@ object HudForeground {
             .build()
     }
 
-    private fun buildCarTileNotification(context: Context): android.app.Notification {
+    private fun buildCarMessageNotification(
+        context: Context,
+        fallbackTitle: String = HudState.carNotificationTitle(),
+        fallbackText: String = HudState.carNotificationText(),
+        alerting: Boolean
+    ): android.app.Notification {
+        val title = HudState.carNotificationTitle().ifBlank { fallbackTitle }
+        val text = HudState.carNotificationText().ifBlank { fallbackText }
         val driver = Person.Builder()
             .setName("Driver")
             .build()
@@ -107,34 +120,35 @@ object HudForeground {
             .setName("Ranger HUD")
             .setBot(true)
             .build()
-        val message = "${HudState.tileTitle()}\n${HudState.tileText()}"
         val style = NotificationCompat.MessagingStyle(driver)
-            .setConversationTitle("Ranger Profit HUD")
+            .setConversationTitle(title)
+            .setGroupConversation(false)
             .addMessage(
                 NotificationCompat.MessagingStyle.Message(
-                    message,
+                    text,
                     System.currentTimeMillis(),
                     hud
                 )
             )
 
-        return NotificationCompat.Builder(context, CAR_TILE_CHANNEL_ID)
+        return NotificationCompat.Builder(context, ALERT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_ranger)
-            .setContentTitle(HudState.tileTitle())
-            .setContentText(HudState.tileText())
+            .setContentTitle(title)
+            .setContentText(text)
             .setStyle(style)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setOnlyAlertOnce(true)
-            .setSilent(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(!alerting)
+            .setSilent(!alerting)
             .setAutoCancel(false)
             .setShowWhen(false)
-            .addAction(markReadAction(context))
+            .addInvisibleAction(markAsReadAction(context))
             .addAction(replyAction(context))
             .build()
     }
 
-    private fun markReadAction(context: Context): NotificationCompat.Action {
+    private fun markAsReadAction(context: Context): NotificationCompat.Action {
         val intent = Intent(context, HudMessageActionService::class.java)
             .setAction(HudMessageActionService.ACTION_MARK_READ)
         val pendingIntent = PendingIntent.getService(
@@ -145,9 +159,12 @@ object HudForeground {
         )
         return NotificationCompat.Action.Builder(
             R.drawable.ic_action_mark_read,
-            "Read",
+            "Refresh",
             pendingIntent
-        ).build()
+        )
+            .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_MARK_AS_READ)
+            .setShowsUserInterface(false)
+            .build()
     }
 
     private fun replyAction(context: Context): NotificationCompat.Action {
@@ -168,6 +185,8 @@ object HudForeground {
             pendingIntent
         )
             .addRemoteInput(remoteInput)
+            .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+            .setShowsUserInterface(false)
             .setAllowGeneratedReplies(false)
             .build()
     }

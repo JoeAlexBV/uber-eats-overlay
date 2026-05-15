@@ -161,6 +161,18 @@ object HudState {
         else -> headline
     }
 
+    fun carNotificationTitle(): String = when (mode) {
+        Mode.LIVE_OFFER,
+        Mode.PAST_TRIP -> "Rate: ${rateText()}  ${tripText()}"
+        else -> "Ranger HUD"
+    }
+
+    fun carNotificationText(): String = when (mode) {
+        Mode.LIVE_OFFER,
+        Mode.PAST_TRIP -> "Pay ${payText()}  Net ${netText()}"
+        else -> headline
+    }
+
     private fun formatLine(label: String, value: String): String = "$label: $value"
 
     private fun formatMoney(amount: Double): String =

@@ -61,16 +61,6 @@
         </service>
 
         <service
-            android:name=".RangerHudMediaService"
-            android:exported="true"
-            android:label="@string/car_media_name"
-            android:icon="@mipmap/ic_launcher">
-            <intent-filter>
-                <action android:name="android.media.browse.MediaBrowserService" />
-            </intent-filter>
-        </service>
-
-        <service
             android:name=".HudMessageActionService"
             android:exported="false" />
 

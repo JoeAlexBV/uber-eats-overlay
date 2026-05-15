@@ -4,8 +4,8 @@ import java.util.Locale
 
 object RangerEconomics {
     private const val GAS_PRICE = 4.10
-    private const val MPG = 22.0
-    private const val MAINTENANCE_PER_MILE = 0.25
+    private const val MPG = 19.0
+    private const val MAINTENANCE_PER_MILE = 0.26
 
     val costPerMile: Double = (GAS_PRICE / MPG) + MAINTENANCE_PER_MILE
 

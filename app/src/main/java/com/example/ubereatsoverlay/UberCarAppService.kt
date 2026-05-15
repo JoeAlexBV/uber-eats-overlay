@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
 import androidx.car.app.CarAppService
+import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.Session
 import androidx.car.app.model.Template
@@ -25,7 +26,7 @@ class UberCarAppService : CarAppService() {
     }
 }
 
-class HudMainScreen(carContext: androidx.car.app.CarContext) : Screen(carContext) {
+class HudMainScreen(carContext: CarContext) : Screen(carContext) {
 
     private var lastInvalidateTime = 0L
 
