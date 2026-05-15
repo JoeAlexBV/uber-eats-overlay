@@ -109,7 +109,9 @@ class UberDataService : AccessibilityService() {
 
     private fun collectTripData(node: AccessibilityNodeInfo?, trip: TripOffer) {
         if (node == null) return
-        val combined = "${node.text} ${node.contentDescription}".lowercase()
+        val text = node.text?.toString() ?: ""
+        val desc = node.contentDescription?.toString() ?: ""
+        val combined = "$text $desc".lowercase()
 
         if (combined.contains("accept") || combined.contains("exclusive") || combined.contains("delivery")) {
             trip.isLiveOffer = true
@@ -145,7 +147,7 @@ class UberDataService : AccessibilityService() {
             // Handle the Yellow Add-on text visibility
             if (mainText.contains("+") || mainText.contains("Add-on")) {
                 addOnTextView?.visibility = View.VISIBLE
-                addOnTextView?.text = "Stacked Order Detected"
+                addOnTextView?.text = getString(R.string.stacked_order_alert)
             } else {
                 addOnTextView?.visibility = View.GONE
             }
