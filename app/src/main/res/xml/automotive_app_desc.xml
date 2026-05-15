@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <automotiveApp>
-    <!-- Tells the truck we want to send notifications to the screen -->
-    <uses name="notification"/>
+  <!-- Car App Library dashboard (primary HUD surface) -->
+  <uses name="template" />
 </automotiveApp>

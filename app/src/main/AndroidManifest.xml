@@ -5,6 +5,9 @@
     <!-- Permissions go outside the application tag -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
 
 
     <application
@@ -31,7 +34,13 @@
         <service
             android:name=".UberDataService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:foregroundServiceType="specialUse"
             android:exported="true">
+            
+            <property 
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" 
+                android:value="Scraping Uber offer data to display profit margins on a Ford Ranger SYNC dashboard." />
+            
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
@@ -40,15 +49,13 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- Android Auto Service for Ford SYNC -->
         <service
             android:name=".UberCarAppService"
             android:exported="true"
-            android:label="Ranger Profit HUD"
+            android:label="@string/car_app_name"
             android:icon="@mipmap/ic_launcher">
             <intent-filter>
                 <action android:name="androidx.car.app.CarAppService" />
-                <category android:name="androidx.car.app.category.MESSAGING"/>
             </intent-filter>
         </service>
 
@@ -60,7 +67,7 @@
             android:name="androidx.car.app.minCarApiLevel"
             android:value="1" />
 
-        <!-- This is to enable split screen support-->
+        <!-- Allows split-screen / multi-pane with navigation on wide DHU & SYNC layouts -->
         <meta-data
             android:name="com.google.android.car.MENU_RESTRICTION"
             android:value="none" />

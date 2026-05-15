@@ -5,45 +5,81 @@
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:padding="16dp"
     tools:context=".MainActivity">
 
-    <!-- Store Name at the top -->
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="@string/hud_status_default"
+        android:textSize="14sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
     <TextView
         android:id="@+id/storeText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Store Name"
-        android:textSize="24sp"
-        app:layout_constraintBottom_toTopOf="@+id/payoutText"
+        android:layout_marginTop="12dp"
+        android:text="Ranger Profit HUD"
+        android:textSize="22sp"
+        android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintVertical_chainStyle="packed" />
+        app:layout_constraintTop_toBottomOf="@id/statusText" />
 
-    <!-- Payout in the middle -->
     <TextView
         android:id="@+id/payoutText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Payout: $0.00"
-        android:textSize="20sp"
-        android:layout_marginTop="16dp"
-        app:layout_constraintBottom_toTopOf="@+id/distanceText"
+        android:layout_marginTop="8dp"
+        android:text="Waiting for data…"
+        android:textSize="16sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/storeText" />
+        app:layout_constraintTop_toBottomOf="@id/storeText" />
 
-    <!-- Distance at the bottom -->
     <TextView
         android:id="@+id/distanceText"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:text="Distance: 0.0 mi"
-        android:textSize="18sp"
         android:layout_marginTop="16dp"
-        app:layout_constraintBottom_toBottomOf="parent"
+        android:text="@string/dhu_dashboard_hint"
+        android:textSize="13sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/payoutText" />
+        app:layout_constraintTop_toBottomOf="@id/payoutText" />
+
+    <Button
+        android:id="@+id/btnTestReady"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:text="@string/btn_test_ready"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/distanceText" />
+
+    <Button
+        android:id="@+id/btnTestOffer7"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/btn_test_offer_7"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/btnTestReady" />
+
+    <Button
+        android:id="@+id/btnTestOffer14"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/btn_test_offer_14"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/btnTestOffer7" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

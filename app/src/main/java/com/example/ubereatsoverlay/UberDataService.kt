@@ -1,9 +1,6 @@
 package com.example.ubereatsoverlay
 
 import android.accessibilityservice.AccessibilityService
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.content.Context
 import android.graphics.PixelFormat
 import android.os.Build
 import android.util.Log
@@ -15,9 +12,9 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.TextView
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import androidx.core.app.Person
+import android.provider.Settings
+import androidx.car.app.connection.CarConnection
+import androidx.lifecycle.Observer
 import java.io.File
 import java.io.IOException
 import java.util.Locale
@@ -27,143 +24,164 @@ class UberDataService : AccessibilityService() {
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
     private var infoTextView: TextView? = null
+    private var addOnTextView: TextView? = null // FIXED: Added this
     private var overlayVisible: Boolean = false
     private lateinit var params: WindowManager.LayoutParams
 
     companion object {
-        var currentNet: Double = 0.0
-        var currentRate: Double = 0.0
-        var isScanning: Boolean = false
+        // Shared stats for the Ford Ranger SYNC display
+        var currentNet: Double 
+            get() = HudState.net
+            set(_) {}
+        var currentRate: Double 
+            get() = HudState.rate
+            set(_) {}
+        var latestStats: String 
+            get() = HudState.formatPhoneOverlay()
+            set(_) {}
+
+        private val GHOST_PAY_KEYWORDS = listOf("quest", "promotion", "bonus", "extra for", "trips")
+        private val PAST_TRIP_KEYWORDS = listOf("trip details", "order details", "summary")
+        private val EARNINGS_KEYWORDS = listOf("earnings", "wallet", "history")
+        private val NAV_KEYWORDS = listOf("navigate", "searching", "go offline")
     }
 
-    // --- 2023 FORD RANGER COSTS ---
-    private val COST_PER_MILE = (4.10 / 19.0) + 0.25 
-    // 4.10 is the average cost of a gallon of regular in the US as of mid-2026, 
-    // and 19 is the average miles per gallon for a Ford Ranger. 
-    // The $0.25 accounts for additional wear and tear costs.
-    
     private data class TripOffer(
         var pay: Double = 0.0,
         var distance: Double = 0.0,
         var time: Double = 0.0,
-        var isAddOn: Boolean = false,
-        var isRealOffer: Boolean = false 
+        var isLiveOffer: Boolean = false,
+        var isAddOn: Boolean = false // Added for the yellow text
     )
 
     private val payRegex = Regex("\\\$\\s*(\\d+\\.?\\d*)")
     private val distanceRegex = Regex("(\\d+\\.?\\d*)\\s*mi\\b")
     private val timeRegex = Regex("(\\d+)\\s*min\\b")
-    
-    private var lastProcessedOfferHash: Int = 0 
+
+    private var lastHash: Int = Int.MIN_VALUE
+    private var lastIdlePushTime = 0L
+    private var carHandshakeComplete = false
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        createNotificationChannel()
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        HudForeground.ensureChannel(this)
         startLoggingToFile()
-        
-        // ALWAYS ON: Fire the first notification immediately so the truck tile populates
         showOverlay()
-        sendProfitNotification(0.0, 0.0, false, true) 
-        Log.d("UberDebug", "Service Connected. Always-On Tile Activated.")
+
+        // Sync with SYNC 4 dashboard
+        commitDashboard { HudState.applyIdle() }
+        HudForeground.start(this)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        val currentOffer = TripOffer()
+        val trip = TripOffer()
+        val currentWindows = windows
         
-        // Scan all windows to catch pop-ups
-        for (window in windows) {
-            if (window.root?.packageName?.contains("ubercab.driver") == true) {
-                collectTripData(window.root, currentOffer)
+        // Multi-window scan to catch Uber pop-ups
+        for (window in currentWindows) {
+            val root = window.root ?: continue
+            if (root.packageName?.contains("ubercab.driver") == true) {
+                collectTripData(root, trip)
             }
+            root.recycle()
         }
 
-        val isHistoryOrActive = combinedCheck(rootInActiveWindow, listOf("history", "earnings", "details", "navigate"))
-
-        if (currentOffer.pay > 0.1 && !isHistoryOrActive) {
-            val currentOfferHash = (currentOffer.pay * 100).toInt() + (currentOffer.distance * 10).toInt()
-            if (currentOfferHash != lastProcessedOfferHash) {
-                lastProcessedOfferHash = currentOfferHash
-                updateUI(currentOffer)
+        // Logic check for screen type
+        val isPastTrip = matchesKeywords(PAST_TRIP_KEYWORDS)
+        val isEarnings = matchesKeywords(EARNINGS_KEYWORDS) || matchesKeywords(GHOST_PAY_KEYWORDS)
+        
+        when {
+            trip.isLiveOffer && trip.pay > 0.1 && !isEarnings -> {
+                commitOffer(trip) { HudState.applyLiveOffer(it) }
             }
-        } else if (isHistoryOrActive) {
-            currentNet = 0.0
-            currentRate = 0.0
-            updateOverlayText("Ready for orders...\n(System Standby)")
+            isEarnings -> commitDashboard { HudState.applyStandby() }
+            else -> {
+                // Throttle idle updates to keep SYNC 4 tile stable
+                val now = System.currentTimeMillis()
+                if (now - lastIdlePushTime > 30000) {
+                    lastIdlePushTime = now
+                    commitDashboard { HudState.applyIdle() }
+                }
+            }
         }
     }
 
-    private fun collectTripData(node: AccessibilityNodeInfo?, currentOffer: TripOffer) {
+    private fun collectTripData(node: AccessibilityNodeInfo?, trip: TripOffer) {
         if (node == null) return
         val combined = "${node.text} ${node.contentDescription}".lowercase()
 
-        if (combined.contains("accept") || combined.contains("match") || combined.contains("exclusive")) {
-            currentOffer.isRealOffer = true
+        if (combined.contains("accept") || combined.contains("exclusive") || combined.contains("delivery")) {
+            trip.isLiveOffer = true
         }
 
-        // HIGHEST PAY PRIORITY: Prevents $0.00 overwrite
-        payRegex.find(combined)?.let {
-            val value = it.groupValues[1].toDoubleOrNull() ?: 0.0
-            if (value > 0.1 && value > currentOffer.pay && !combined.contains("extra for")) {
-                currentOffer.pay = value
+        // Detect Add-on/Stacked orders
+        if (combined.contains("add to trip") || combined.contains("next trip")) {
+            trip.isAddOn = true
+        }
+
+        // SCRAPE PAY: Priority to highest found value (kills the $0.00 bug)
+        if (combined.contains("$") && !GHOST_PAY_KEYWORDS.any { combined.contains(it) }) {
+            payRegex.find(combined)?.let {
+                val value = it.groupValues[1].toDoubleOrNull() ?: 0.0
+                if (value > trip.pay) trip.pay = value
             }
         }
 
-        distanceRegex.find(combined)?.let { currentOffer.distance = it.groupValues[1].toDoubleOrNull() ?: 0.0 }
-        timeRegex.find(combined)?.let { currentOffer.time = it.groupValues[1].toDoubleOrNull() ?: 0.0 }
+        distanceRegex.find(combined)?.let { trip.distance = it.groupValues[1].toDoubleOrNull() ?: trip.distance }
+        timeRegex.find(combined)?.let { trip.time = it.groupValues[1].toDoubleOrNull() ?: trip.time }
 
-        for (i in 0 until node.childCount) collectTripData(node.getChild(i), currentOffer)
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            collectTripData(child, trip)
+            child?.recycle()
+        }
     }
 
-    private fun updateUI(offer: TripOffer) {
-        currentNet = offer.pay - (offer.distance * COST_PER_MILE)
-        currentRate = if (offer.time > 0) currentNet / (offer.time / 60.0) else 0.0
+    private fun updateOverlayText(mainText: String) {
+        infoTextView?.post {
+            infoTextView?.text = mainText
+            
+            // Handle the Yellow Add-on text visibility
+            if (mainText.contains("+") || mainText.contains("Add-on")) {
+                addOnTextView?.visibility = View.VISIBLE
+                addOnTextView?.text = "Stacked Order Detected"
+            } else {
+                addOnTextView?.visibility = View.GONE
+            }
 
-        val displayStr = String.format(Locale.US, "Pay: $%.2f\nNet: $%.2f\nRate: $%.2f/hr", offer.pay, currentNet, currentRate)
-        updateOverlayText(displayStr)
-        
-        // Push update to the truck
-        sendProfitNotification(currentNet, currentRate, offer.isAddOn, false)
+            // FORCE re-measure of the window to prevent clipping
+            if (overlayVisible && overlayView != null) {
+                try {
+                    // Update params to wrap content again to catch the new size
+                    params.width = WindowManager.LayoutParams.WRAP_CONTENT
+                    params.height = WindowManager.LayoutParams.WRAP_CONTENT
+                    windowManager?.updateViewLayout(overlayView, params)
+                } catch (e: Exception) {}
+            }
+        }
     }
 
-    private fun sendProfitNotification(net: Double, rate: Double, isAddOn: Boolean, isInitial: Boolean) {
-        val sender = Person.Builder().setName("Uber Tracker").setBot(true).build()
-        
-        val content = if (isInitial) "Ready for orders..." 
-                      else String.format(Locale.US, "Net: $%.2f | Rate: $%.2f/hr", net, rate)
-
-        val messagingStyle = NotificationCompat.MessagingStyle(sender)
-            .addMessage(content, System.currentTimeMillis(), sender)
-            .setConversationTitle("Profit Status")
-
-        val builder = NotificationCompat.Builder(this, "UberProfitChannel")
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setStyle(messagingStyle)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setOngoing(true) // THIS KEEPS IT ON THE DASHBOARD
-            .setOnlyAlertOnce(true) // Stops the truck from 'dinging' every time the price changes
-            .setAutoCancel(false)
-
-        try {
-            NotificationManagerCompat.from(this).notify(1, builder.build())
-        } catch (e: SecurityException) {}
-    }
-
-    // ... (Keep your showOverlay, setupDragListener, and combinedCheck functions here)
-    private fun updateOverlayText(text: String) { infoTextView?.post { infoTextView?.text = text } }
-    
     private fun showOverlay() {
         if (!overlayVisible) {
             params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
-            ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = 150 }
+            ).apply {
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                y = 150
+            }
+
             val inflater = getSystemService(LAYOUT_INFLATER_SERVICE) as LayoutInflater
             overlayView = inflater.inflate(R.layout.overlay_layout, null)
+            
+            // FIXED: Initialize BOTH text views
             infoTextView = overlayView?.findViewById(R.id.overlay_text)
+            addOnTextView = overlayView?.findViewById(R.id.overlay_addon_text)
+            
             setupDragListener()
             windowManager?.addView(overlayView, params)
             overlayVisible = true
@@ -171,24 +189,100 @@ class UberDataService : AccessibilityService() {
     }
 
     private fun setupDragListener() {
-        overlayView?.setOnTouchListener { _, event ->
-            if (event.action == MotionEvent.ACTION_MOVE) {
-                params.x = event.rawX.toInt() - 150; params.y = event.rawY.toInt() - 150
-                windowManager?.updateViewLayout(overlayView, params); true
-            } else false
-        }
+        overlayView?.setOnTouchListener(object : View.OnTouchListener {
+            private var initialX: Int = 0
+            private var initialY: Int = 0
+            private var initialTouchX: Float = 0f
+            private var initialTouchY: Float = 0f
+
+            override fun onTouch(v: View, event: MotionEvent): Boolean {
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        initialX = params.x
+                        initialY = params.y
+                        initialTouchX = event.rawX
+                        initialTouchY = event.rawY
+                        return true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        params.x = initialX + (event.rawX - initialTouchX).toInt()
+                        params.y = initialY + (event.rawY - initialTouchY).toInt()
+                        try {
+                            windowManager?.updateViewLayout(overlayView, params)
+                        } catch (e: Exception) {
+                            Log.e("UberDebug", "Update layout failed during drag: ${e.message}")
+                        }
+                        return true
+                    }
+                }
+                return false
+            }
+        })
+    }
+
+    // ... (Keep your commitOffer, commitDashboard, and publish as they were)
+
+    private fun commitOffer(trip: TripOffer, apply: (RangerEconomics.Offer) -> Unit) {
+        val offer = RangerEconomics.Offer(trip.pay, trip.distance, trip.time)
+        apply(offer)
+        publish()
+    }
+
+    private fun commitDashboard(apply: () -> Unit) {
+        apply()
+        publish()
+    }
+
+    private fun publish() {
+        updateOverlayText(HudState.formatPhoneOverlay())
+        HudForeground.refresh(this)
     }
 
     private fun startLoggingToFile() {
         val logFile = File(getExternalFilesDir(null), "uber_debug_logs.txt")
-        try { Runtime.getRuntime().exec("logcat -c"); Runtime.getRuntime().exec("logcat -f ${logFile.absolutePath} UberDebug:D *:S") } catch (e: IOException) {}
+        try {
+            Runtime.getRuntime().exec("logcat -c")
+            Runtime.getRuntime().exec("logcat -f ${logFile.absolutePath} UberDebug:D *:S")
+        } catch (e: IOException) {}
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel("UberProfitChannel", "Profitability", NotificationManager.IMPORTANCE_HIGH)
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
+    private fun matchesKeywords(keywords: List<String>): Boolean {
+        val activeRoot = rootInActiveWindow
+        if (combinedCheck(activeRoot, keywords)) {
+            activeRoot?.recycle()
+            return true
         }
+        activeRoot?.recycle()
+
+        val currentWindows = windows
+        for (window in currentWindows) {
+            val root = window.root
+            if (combinedCheck(root, keywords)) {
+                root?.recycle()
+                return true
+            }
+            root?.recycle()
+        }
+        return false
+    }
+
+    private fun combinedCheck(node: AccessibilityNodeInfo?, keywords: List<String>): Boolean {
+        if (node == null) return false
+        val text = node.text?.toString() ?: ""
+        val desc = node.contentDescription?.toString() ?: ""
+        val combined = "$text $desc".lowercase()
+        
+        if (keywords.any { combined.contains(it) }) return true
+        
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (combinedCheck(child, keywords)) {
+                child?.recycle()
+                return true
+            }
+            child?.recycle()
+        }
+        return false
     }
 
     override fun onInterrupt() {}
