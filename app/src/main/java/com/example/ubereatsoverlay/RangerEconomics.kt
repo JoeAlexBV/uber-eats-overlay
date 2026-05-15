@@ -23,7 +23,7 @@ object RangerEconomics {
         val rate = hourlyRate(offer)
         return String.format(
             Locale.US,
-            "Pay $%.2f · %.1f mi · %.0f min → Net $%.2f · $%.2f/hr",
+            "Pay $%.2f - %.1f mi - %.0f min -> Net $%.2f - $%.2f/hr",
             offer.pay,
             offer.miles,
             offer.minutes,

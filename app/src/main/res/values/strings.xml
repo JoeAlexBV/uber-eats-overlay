@@ -1,14 +1,15 @@
 <resources>
     <string name="app_name">Ranger Profit HUD</string>
     <string name="car_app_name">Ranger Profit HUD</string>
+    <string name="car_media_name">Ranger HUD Tile</string>
     <string name="accessibility_description">This service helps populate delivery fields from the Uber Driver app.</string>
     <string name="hud_status_default">Open Ranger Profit HUD from the car app dock for the always-on dashboard.</string>
-    <string name="hud_status_ready">Ready — open Ranger Profit HUD on DHU to see the dashboard.</string>
+    <string name="hud_status_ready">Ready - open Ranger Profit HUD on DHU to see the dashboard.</string>
     <string name="hud_status_no_notif_permission">Allow notifications, then tap a test button.</string>
-    <string name="dhu_dashboard_hint">Split (1/4 or 1/2): On DHU home with Uber map showing, tap Ranger HUD in the dock — do not open it from Recents. Use a wide DHU window (desktop-head-unit -c dhu/wide-split.ini). If it still goes full-screen, your head unit may only allow one app at a time; the truck SYNC layout may differ.</string>
+    <string name="dhu_dashboard_hint">Split test: open Android Auto home, tap Ranger Profit HUD from the launcher or dock, then let the host choose the companion pane. Use desktop-head-unit -c dhu/wide-split.ini. If it still opens full-screen, that host is not allowing this template app in split view.</string>
     <string name="btn_test_ready">Test: Ready &amp; Monitoring</string>
     <string name="btn_test_offer_7">Test: $7.03 offer (3.2 mi)</string>
     <string name="btn_test_offer_14">Test: $14.06 offer (5.1 mi)</string>
-    <string name="toast_test_sent_dashboard">Test stats sent — open Ranger Profit HUD on DHU.</string>
-    <string name="hud_preview_net">Net $%.2f · $%.2f/hr</string>
+    <string name="toast_test_sent_dashboard">Test stats sent - open Ranger Profit HUD on DHU.</string>
+    <string name="hud_preview_net">Net $%.2f - $%.2f/hr</string>
 </resources>

@@ -81,18 +81,85 @@ object HudState {
         UberDataService.latestStats = formatCompactBlock()
     }
 
-    /** Single glanceable block — phone overlay, car HUD, and notifications. */
     fun formatCompactBlock(): String {
         val lines = buildString {
-            appendLine(formatLine("Pay", formatMoney(pay)))
-            appendLine(formatLine("Net", formatMoney(net)))
-            append(formatLine("Rate", formatRate(rate)))
+            appendLine(formatLine("Pay", payText()))
+            appendLine(formatLine("Net", netText()))
+            append(formatLine("Rate", rateText()))
             formatTripLine()?.let { append("\n").append(it) }
         }
         return lines.trimEnd()
     }
 
     fun formatPhoneOverlay(): String = formatCompactBlock()
+
+    fun payText(): String = formatMoney(pay)
+
+    fun netText(): String = formatMoney(net)
+
+    fun rateText(): String = formatRate(rate)
+
+    fun tripText(): String = formatTripLine() ?: "No active trip"
+
+    fun navigationTitle(): String = when (mode) {
+        Mode.LIVE_OFFER,
+        Mode.PAST_TRIP -> "Pay ${payText()}  Net ${netText()}"
+        else -> headline
+    }
+
+    fun navigationText(): String = when (mode) {
+        Mode.LIVE_OFFER,
+        Mode.PAST_TRIP -> "${rateText()}  ${tripText()}"
+        else -> "Waiting for the next offer"
+    }
+
+    fun mediaTitle(): String = when (mode) {
+        Mode.LIVE_OFFER,
+        Mode.PAST_TRIP -> "Pay ${payText()}  Net ${netText()}"
+        else -> "Ranger Profit HUD"
+    }
+
+    fun mediaSubtitle(): String = when (mode) {
+        Mode.LIVE_OFFER,
+        Mode.PAST_TRIP -> "${rateText()}  ${tripText()}"
+        else -> headline
+    }
+
+    fun mediaTitleLine(): String = when (mode) {
+        Mode.LIVE_OFFER,
+        Mode.PAST_TRIP -> "Pay ${payText()}"
+        else -> "Ranger Profit HUD"
+    }
+
+    fun mediaArtistLine(): String = when (mode) {
+        Mode.LIVE_OFFER,
+        Mode.PAST_TRIP -> "Net ${netText()}"
+        else -> headline
+    }
+
+    fun mediaAlbumLine(): String = when (mode) {
+        Mode.LIVE_OFFER,
+        Mode.PAST_TRIP -> "${rateText()}  ${tripText()}"
+        else -> "Waiting for offers"
+    }
+
+    fun tileTitle(): String = when (mode) {
+        Mode.LIVE_OFFER,
+        Mode.PAST_TRIP -> String.format(
+            Locale.US,
+            "Pay %.2f Net %.2f Hr %.2f",
+            pay,
+            net,
+            rate
+        )
+        else -> "Ranger Profit HUD"
+    }
+
+    fun tileText(): String = when (mode) {
+        Mode.LIVE_OFFER,
+        Mode.PAST_TRIP -> tripText()
+        else -> headline
+    }
 
     private fun formatLine(label: String, value: String): String = "$label: $value"
 
@@ -104,12 +171,12 @@ object HudState {
 
     fun formatTripLine(): String? {
         if (miles <= 0.0 && minutes <= 0.0) return null
-        return String.format(Locale.US, "%.1f mi · %.0f min", miles, minutes)
+        return String.format(Locale.US, "%.1f mi - %.0f min", miles, minutes)
     }
 
     fun statusTitle(): String = when (mode) {
-        Mode.LIVE_OFFER -> "● $headline"
-        Mode.PAST_TRIP -> "◌ $headline"
+        Mode.LIVE_OFFER -> "Live: $headline"
+        Mode.PAST_TRIP -> "Past: $headline"
         else -> headline
     }
 
