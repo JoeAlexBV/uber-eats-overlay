@@ -6,6 +6,7 @@ object RangerEconomics {
     private const val GAS_PRICE = 4.10
     private const val MPG = 19.0
     private const val MAINTENANCE_PER_MILE = 0.26
+    private const val RETURN_TO_ZONE_MULTIPLIER = 2.0
 
     val costPerMile: Double = (GAS_PRICE / MPG) + MAINTENANCE_PER_MILE
 
@@ -15,7 +16,8 @@ object RangerEconomics {
 
     fun hourlyRate(offer: Offer): Double {
         val net = netProfit(offer)
-        return if (offer.minutes > 0) net / (offer.minutes / 60.0) else 0.0
+        val roundTripMinutes = offer.minutes * RETURN_TO_ZONE_MULTIPLIER
+        return if (roundTripMinutes > 0) net / (roundTripMinutes / 60.0) else 0.0
     }
 
     fun formatSummary(offer: Offer): String {
