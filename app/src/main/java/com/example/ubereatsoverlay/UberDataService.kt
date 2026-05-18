@@ -1,6 +1,9 @@
 package com.example.ubereatsoverlay
 
 import android.accessibilityservice.AccessibilityService
+import android.Manifest
+import android.app.Notification
+import android.content.pm.PackageManager
 import android.graphics.PixelFormat
 import android.os.Build
 import android.util.Log
@@ -17,6 +20,8 @@ import androidx.car.app.connection.CarConnection
 import androidx.lifecycle.Observer
 import java.io.File
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 class UberDataService : AccessibilityService() {
@@ -29,6 +34,13 @@ class UberDataService : AccessibilityService() {
     private lateinit var params: WindowManager.LayoutParams
 
     companion object {
+        private const val TAG = "UberDebug"
+        private const val UBER_PACKAGE = "com.ubercab.driver"
+        private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+        private const val OFFER_DEDUP_MS = 120_000L
+        private const val EVENT_LOG_THROTTLE_MS = 5_000L
+        private const val MAX_DEBUG_LOG_BYTES = 512 * 1024
+
         // Shared stats for the Ford Ranger SYNC display
         var currentNet: Double 
             get() = HudState.net
@@ -44,6 +56,25 @@ class UberDataService : AccessibilityService() {
         private val PAST_TRIP_KEYWORDS = listOf("trip details", "order details", "summary")
         private val EARNINGS_KEYWORDS = listOf("earnings", "wallet", "history")
         private val NAV_KEYWORDS = listOf("navigate", "searching", "go offline")
+        private val LIVE_OFFER_KEYWORDS = listOf(
+            "accept",
+            "delivery",
+            "exclusive",
+            "offer",
+            "request",
+            "pickup",
+            "dropoff",
+            "uber eats"
+        )
+        private val NOISE_TEXT_MARKERS = listOf(
+            "map?",
+            "cloudfront",
+            "marker=",
+            "anchorx",
+            "width=",
+            "height=",
+            "%24"
+        )
     }
 
     private data class TripOffer(
@@ -55,33 +86,42 @@ class UberDataService : AccessibilityService() {
     )
 
     private val payRegex = Regex("\\\$\\s*(\\d+\\.?\\d*)")
-    private val distanceRegex = Regex("(\\d+\\.?\\d*)\\s*mi\\b")
-    private val timeRegex = Regex("(\\d+)\\s*min\\b")
+    private val distanceRegex = Regex("(\\d+(?:\\.\\d+)?)\\s*(?:mi|mile|miles)\\b")
+    private val timeRegex = Regex("(\\d+(?:\\.\\d+)?)\\s*(?:min|mins|minute|minutes)\\b")
+    private val logTimestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
 
     private var lastHash: Int = Int.MIN_VALUE
     private var lastIdlePushTime = 0L
+    private var lastOfferAlertTime = 0L
+    private var lastEventLogTime = 0L
     private var carHandshakeComplete = false
+    private var debugLogFile: File? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         HudForeground.ensureChannel(this)
         startLoggingToFile()
+        logDebug("service_connected overlay=${canDrawOverlay()} notifications=${hasNotificationPermission()}")
+        HudForeground.start(this)
         showOverlay()
 
         // Sync with SYNC 4 dashboard
         commitDashboard { HudState.applyIdle() }
-        HudForeground.start(this)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        if (!isRelevantEvent(event)) return
+
         val trip = TripOffer()
-        val currentWindows = windows
-        
+        collectTripData(event, trip)
+
         // Multi-window scan to catch Uber pop-ups
-        for (window in currentWindows) {
+        val scanSystemUi = event.packageName?.toString() == SYSTEM_UI_PACKAGE || event.eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED
+        for (window in windows) {
             val root = window.root ?: continue
-            if (root.packageName?.contains("ubercab.driver") == true) {
+            val packageName = root.packageName?.toString().orEmpty()
+            if (packageName.contains(UBER_PACKAGE) || (scanSystemUi && packageName.contains(SYSTEM_UI_PACKAGE))) {
                 collectTripData(root, trip)
             }
             root.recycle()
@@ -93,7 +133,9 @@ class UberDataService : AccessibilityService() {
         
         when {
             trip.isLiveOffer && trip.pay > 0.1 && !isEarnings -> {
-                commitOffer(trip) { HudState.applyLiveOffer(it) }
+                val alerting = shouldAlertOffer(trip)
+                logDebug("live_offer pay=${trip.pay} mi=${trip.distance} min=${trip.time} addOn=${trip.isAddOn} alerting=$alerting")
+                commitOffer(trip, alerting) { HudState.applyLiveOffer(it) }
             }
             isEarnings -> commitDashboard { HudState.applyStandby() }
             else -> {
@@ -107,13 +149,63 @@ class UberDataService : AccessibilityService() {
         }
     }
 
+    private fun collectTripData(event: AccessibilityEvent, trip: TripOffer) {
+        if (event.eventType != AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
+            maybeLogEvent(event)
+            return
+        }
+
+        val textParts = mutableListOf<String>()
+        event.text?.mapNotNullTo(textParts) { it?.toString() }
+        event.contentDescription?.toString()?.let(textParts::add)
+
+        val notification = event.parcelableData as? Notification
+        val extras = notification?.extras
+        if (extras != null) {
+            listOf(
+                Notification.EXTRA_TITLE,
+                Notification.EXTRA_TEXT,
+                Notification.EXTRA_BIG_TEXT,
+                Notification.EXTRA_SUB_TEXT,
+                Notification.EXTRA_SUMMARY_TEXT,
+                Notification.EXTRA_INFO_TEXT
+            ).forEach { key ->
+                extras.getCharSequence(key)?.toString()?.let(textParts::add)
+            }
+            extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+                ?.mapNotNullTo(textParts) { it?.toString() }
+        }
+
+        textParts.forEach { collectTripData(it, trip) }
+        logDebug("notification_event package=${event.packageName} text='${textParts.joinToString(" | ").take(240)}' parsed=${trip.summary()}")
+    }
+
     private fun collectTripData(node: AccessibilityNodeInfo?, trip: TripOffer) {
         if (node == null) return
         val text = node.text?.toString() ?: ""
         val desc = node.contentDescription?.toString() ?: ""
-        val combined = "$text $desc".lowercase()
+        collectTripData(text, trip)
+        collectTripData(desc, trip)
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            collectTripData(child, trip)
+            child?.recycle()
+        }
+    }
+
+    private fun collectTripData(rawText: String, trip: TripOffer) {
+        if (rawText.isBlank()) return
+        val combined = rawText.lowercase(Locale.US)
+        val isNoise = NOISE_TEXT_MARKERS.any { combined.contains(it) }
 
         if (combined.contains("accept") || combined.contains("exclusive") || combined.contains("delivery")) {
+            trip.isLiveOffer = true
+        }
+        if (LIVE_OFFER_KEYWORDS.any { combined.contains(it) } &&
+            !PAST_TRIP_KEYWORDS.any { combined.contains(it) } &&
+            !EARNINGS_KEYWORDS.any { combined.contains(it) }
+        ) {
             trip.isLiveOffer = true
         }
 
@@ -123,21 +215,15 @@ class UberDataService : AccessibilityService() {
         }
 
         // SCRAPE PAY: Priority to highest found value (kills the $0.00 bug)
-        if (combined.contains("$") && !GHOST_PAY_KEYWORDS.any { combined.contains(it) }) {
-            payRegex.find(combined)?.let {
+        if (!isNoise && combined.contains("$") && !GHOST_PAY_KEYWORDS.any { combined.contains(it) }) {
+            payRegex.findAll(combined).forEach {
                 val value = it.groupValues[1].toDoubleOrNull() ?: 0.0
-                if (value > trip.pay) trip.pay = value
+                if (value in 0.1..200.0 && value > trip.pay) trip.pay = value
             }
         }
 
         distanceRegex.find(combined)?.let { trip.distance = it.groupValues[1].toDoubleOrNull() ?: trip.distance }
         timeRegex.find(combined)?.let { trip.time = it.groupValues[1].toDoubleOrNull() ?: trip.time }
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            collectTripData(child, trip)
-            child?.recycle()
-        }
     }
 
     private fun updateOverlayText(mainText: String) {
@@ -166,6 +252,11 @@ class UberDataService : AccessibilityService() {
 
     private fun showOverlay() {
         if (!overlayVisible) {
+            if (!canDrawOverlay()) {
+                logDebug("overlay_skipped missing SYSTEM_ALERT_WINDOW permission")
+                return
+            }
+
             params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -185,8 +276,13 @@ class UberDataService : AccessibilityService() {
             addOnTextView = overlayView?.findViewById(R.id.overlay_addon_text)
             
             setupDragListener()
-            windowManager?.addView(overlayView, params)
-            overlayVisible = true
+            try {
+                windowManager?.addView(overlayView, params)
+                overlayVisible = true
+                logDebug("overlay_added")
+            } catch (e: Exception) {
+                logDebug("overlay_failed ${e.javaClass.simpleName}: ${e.message}")
+            }
         }
     }
 
@@ -212,7 +308,7 @@ class UberDataService : AccessibilityService() {
                         try {
                             windowManager?.updateViewLayout(overlayView, params)
                         } catch (e: Exception) {
-                            Log.e("UberDebug", "Update layout failed during drag: ${e.message}")
+                            logDebug("Update layout failed during drag: ${e.message}")
                         }
                         return true
                     }
@@ -224,17 +320,20 @@ class UberDataService : AccessibilityService() {
 
     // ... (Keep your commitOffer, commitDashboard, and publish as they were)
 
-    private fun commitOffer(trip: TripOffer, apply: (RangerEconomics.Offer) -> Unit) {
+    private fun commitOffer(trip: TripOffer, alerting: Boolean, apply: (RangerEconomics.Offer) -> Unit) {
         val offer = RangerEconomics.Offer(trip.pay, trip.distance, trip.time)
         apply(offer)
         publish()
 
         // High-priority alert to trigger Android Auto Heads-Up display
-        HudForeground.sendAlert(
-            this,
-            getString(R.string.new_offer_title),
-            HudState.formatPhoneOverlay()
-        )
+        if (alerting) {
+            HudForeground.sendAlert(
+                this,
+                getString(R.string.new_offer_title),
+                HudState.formatPhoneOverlay()
+            )
+            logDebug("alert_sent ${HudState.formatPhoneOverlay().replace('\n', ' ')}")
+        }
     }
 
     private fun commitDashboard(apply: () -> Unit) {
@@ -249,10 +348,15 @@ class UberDataService : AccessibilityService() {
 
     private fun startLoggingToFile() {
         val logFile = File(getExternalFilesDir(null), "uber_debug_logs.txt")
+        debugLogFile = logFile
         try {
-            Runtime.getRuntime().exec("logcat -c")
-            Runtime.getRuntime().exec("logcat -f ${logFile.absolutePath} UberDebug:D *:S")
-        } catch (e: IOException) {}
+            if (logFile.length() > MAX_DEBUG_LOG_BYTES) {
+                logFile.writeText("Debug log rotated at ${logTimestampFormat.format(Date())}\n")
+            }
+            logFile.appendText("\n--- Ranger HUD session ${logTimestampFormat.format(Date())} ---\n")
+        } catch (e: IOException) {
+            Log.e(TAG, "Unable to initialize debug log: ${e.message}")
+        }
     }
 
     private fun matchesKeywords(keywords: List<String>): Boolean {
@@ -294,5 +398,64 @@ class UberDataService : AccessibilityService() {
         return false
     }
 
-    override fun onInterrupt() {}
+    private fun isRelevantEvent(event: AccessibilityEvent): Boolean {
+        val packageName = event.packageName?.toString().orEmpty()
+        if (packageName.contains(UBER_PACKAGE)) return true
+        if (event.eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) return true
+        if (packageName.contains(SYSTEM_UI_PACKAGE)) {
+            return event.text.any { part ->
+                val text = part?.toString()?.lowercase(Locale.US).orEmpty()
+                text.contains("uber") || text.contains("delivery") || text.contains("$")
+            } || event.contentDescription?.toString()?.lowercase(Locale.US)?.let {
+                it.contains("uber") || it.contains("delivery") || it.contains("$")
+            } == true
+        }
+        return false
+    }
+
+    private fun maybeLogEvent(event: AccessibilityEvent) {
+        val now = System.currentTimeMillis()
+        if (now - lastEventLogTime < EVENT_LOG_THROTTLE_MS) return
+        lastEventLogTime = now
+        logDebug("event type=${AccessibilityEvent.eventTypeToString(event.eventType)} package=${event.packageName} text='${event.text.joinToString(" | ").take(160)}'")
+    }
+
+    private fun shouldAlertOffer(trip: TripOffer): Boolean {
+        val offerHash = listOf(
+            (trip.pay * 100).toInt(),
+            (trip.distance * 10).toInt(),
+            trip.time.toInt(),
+            trip.isAddOn
+        ).hashCode()
+        val now = System.currentTimeMillis()
+        if (offerHash == lastHash && now - lastOfferAlertTime < OFFER_DEDUP_MS) {
+            return false
+        }
+        lastHash = offerHash
+        lastOfferAlertTime = now
+        return true
+    }
+
+    private fun canDrawOverlay(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
+
+    private fun hasNotificationPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+    private fun logDebug(message: String) {
+        Log.d(TAG, message)
+        try {
+            debugLogFile?.appendText("${logTimestampFormat.format(Date())} $message\n")
+        } catch (e: IOException) {
+            Log.e(TAG, "Unable to write debug log: ${e.message}")
+        }
+    }
+
+    private fun TripOffer.summary(): String =
+        "live=$isLiveOffer pay=$pay mi=$distance min=$time addOn=$isAddOn"
+
+    override fun onInterrupt() {
+        logDebug("service_interrupted")
+    }
 }
